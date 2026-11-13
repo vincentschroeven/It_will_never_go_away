@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Het eiland</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Special+Elite&display=swap">
+<style>
+/* Layout: one full-window low-resolution 3D view, a start card in the middle, a thin bar at the bottom. Single look by choice: the island sets the colours. */
+:root{--ink:#151515;--paper:#f6f4ef;--mute:#5e5b55;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;--type:"Special Elite","Courier New",monospace;color-scheme:light}
+html,body{height:100%}
+[hidden]{display:none!important}
+body{margin:0;background:#e9d9cf;color:var(--ink);font-family:var(--mono);font-size:12px;overflow:hidden}
+#stage{position:fixed;inset:0}
+#stage canvas{display:block;width:100%!important;height:100%!important;image-rendering:pixelated;image-rendering:crisp-edges}
+.bar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:12px;align-items:center;justify-content:space-between;
+  padding:10px max(16px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));color:rgba(21,21,21,.75);mix-blend-mode:multiply}
+.bar .t{letter-spacing:.12em;text-transform:uppercase}
+.bar span{font-variant-numeric:tabular-nums}
+button{font:500 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink);background:rgba(246,244,239,.85);border:1px solid var(--ink);padding:6px 12px;cursor:pointer}
+button:focus-visible{outline:2px solid #2639b8;outline-offset:2px}
+.start{position:fixed;inset:0;display:grid;place-items:center;padding:24px max(16px,env(safe-area-inset-left,0px))}
+.card{display:grid;gap:14px;justify-items:center;text-align:center;background:rgba(246,244,239,.88);padding:28px 36px;border:1px solid var(--ink)}
+.card h1{font-family:var(--type);font-weight:400;font-size:clamp(26px,5vw,40px);margin:0;line-height:1.1}
+.card p{margin:0;color:var(--mute);max-width:44ch}
+.card button{padding:12px 30px;font-size:12px;background:var(--ink);color:var(--paper)}
+#err{position:fixed;inset:0;display:grid;place-items:center;text-align:center;padding:24px}
+</style>
+</head>
+<body>
+
+<div id="stage" aria-label="Een eiland in vlakke pastelkleuren en lage resolutie. Je duikt uit de lucht, zwemt door een school vissen, wordt rondgeblazen met bloesem, vliegt naar de sterren en drijft aan het eind weg van het eiland."></div>
+<div id="err" hidden>De 3D-weergave kon niet starten in deze browser.</div>
+<div class="start" id="start">
+  <div class="card">
+    <h1>It will never go away</h1>
+    <p>Val uit de lucht op het eiland en drijf mee, van ochtend tot sterrennacht. Sleep om rond te kijken.</p>
+    <button id="play">Play</button>
+  </div>
+</div>
+<div class="bar"><span class="t">Das Island · 07 · sleep om rond te kijken</span><span id="info">0:00</span><button id="pause">Pauze</button></div>
+<audio id="a" preload="auto" src="song.mp3"></audio>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
+<script>
+(async function(){
+if(!window.THREE){document.getElementById('err').hidden=false;return;}
+const CUES=[[29.8, 34.3, "I take my time when I fall down again"], [34.7, 37.1, "Reason with fishes, just hold on, my friend"], [37.2, 41.9, "Where did you go?"], [44.5, 48.5, "I've got some time left for you to show now"], [49.2, 54.0, "Wishing the pain doesn't kneel on your heart"], [54.1, 56.2, "Everything is cold and it's about to start"], [56.4, 61.1, "But I cannot go"], [69.0, 76.5, "It's some kind of time theft, I don't know"], [82.9, 87.5, "They are here to stay now"], [87.7, 91.6, "We're on the same road, but I fall back again"], [91.8, 94.6, "Feels like some gamification"], [94.8, 101.7, "It ends and we're back at the start"], [102.1, 106.3, "A little more crumbled, a little less heart"], [106.8, 111.1, "Wishing on stars upon stars upon stars"], [111.3, 114.0, "Everything is hopeful when you look from afar"], [114.2, 119.5, "But I will not go"], [126.4, 133.8, "It's the same path, the only one I know"], [139.9, 145.2, "It will never go away"]];const SONG=175.2;
+const FONT='"Special Elite", "Courier New", monospace';
+try{await document.fonts.load('40px "Special Elite"');}catch(e){}
+const a=document.getElementById('a');
+let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return (seed-1)/2147483646;};const rand=(lo,hi)=>lo+rnd()*(hi-lo);
+const lerp=(p,q,f)=>p+(q-p)*f;
+
+/* ---------- renderer at a low resolution, scaled up with hard pixels ---------- */
+const stage=document.getElementById('stage');
+let renderer;try{renderer=new THREE.WebGLRenderer({antialias:false});}catch(e){document.getElementById('err').hidden=false;return;}
+const DOWN=3;
+function size(){renderer.setPixelRatio(1);renderer.setSize(Math.ceil(innerWidth/DOWN),Math.ceil(innerHeight/DOWN),false);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();}
+stage.appendChild(renderer.domElement);
+const scene=new THREE.Scene();
+const cam=new THREE.PerspectiveCamera(60,1,.5,2600);size();addEventListener('resize',size);
+scene.fog=new THREE.Fog(0xffffff,80,900);
+
+/* ---------- value noise for the island ---------- */
+const P=[];for(let i=0;i<512;i++)P.push(rnd());
+function n2(x,y){const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi;const h=(i,j)=>P[((i*73856093)^(j*19349663))&511];
+  const u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf);return lerp(lerp(h(xi,yi),h(xi+1,yi),u),lerp(h(xi,yi+1),h(xi+1,yi+1),u),v);}
+function fbm(x,y){let s=0,a=1,f=1,n=0;for(let o=0;o<4;o++){s+=a*n2(x*f,y*f);n+=a;a*=.5;f*=2;}return s/n;}
+const R=520;
+function H(x,z){const d=Math.hypot(x/1.15,z)/R;const mask=Math.max(0,1-d*d);const e=fbm(x*.006+10,z*.006+3);return (e*95-18)*mask+mask*14-6;}
+
+/* ---------- terrain with flat shading and height colours ---------- */
+const g=new THREE.PlaneGeometry(1400,1400,140,140);g.rotateX(-Math.PI/2);
+const pos=g.attributes.position;const col=[];
+const SAND=new THREE.Color(0xe8d8b4),G1=new THREE.Color(0x9cbc7a),G2=new THREE.Color(0x6f9a63),G3=new THREE.Color(0x4f7a58),TOP=new THREE.Color(0xc9c2b2);
+for(let i=0;i<pos.count;i++){const x=pos.getX(i),z=pos.getZ(i);const y=H(x,z);pos.setY(i,y);
+  const c=y<2.5?SAND:y<16?G1.clone().lerp(G2,n2(x*.03,z*.03)):y<40?G2.clone().lerp(G3,(y-16)/24):G3.clone().lerp(TOP,Math.min(1,(y-40)/20));col.push(c.r,c.g,c.b);}
+g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));g.computeVertexNormals();
+const land=new THREE.Mesh(g.toNonIndexed(),new THREE.MeshLambertMaterial({vertexColors:true,flatShading:true}));land.geometry.computeVertexNormals();scene.add(land);
+const sea=new THREE.Mesh(new THREE.PlaneGeometry(6000,6000).rotateX(-Math.PI/2),new THREE.MeshLambertMaterial({color:0x8fb3c4}));sea.position.y=.2;scene.add(sea);
+const hemi=new THREE.HemisphereLight(0xffffff,0x887766,.9);scene.add(hemi);
+const sun=new THREE.DirectionalLight(0xffffff,.7);scene.add(sun);
+
+/* ---------- sky: sun or moon disc, stars, floating pollen ---------- */
+const disc=new THREE.Mesh(new THREE.CircleGeometry(40,24),new THREE.MeshBasicMaterial({color:0xfff3d6,fog:false}));scene.add(disc);
+const sv=[];for(let i=0;i<1100;i++){const th=rnd()*Math.PI*2,ph=Math.asin(.06+rnd()*.93);sv.push(Math.cos(th)*Math.cos(ph)*2000,Math.sin(ph)*2000,Math.sin(th)*Math.cos(ph)*2000);}
+const starG=new THREE.BufferGeometry();starG.setAttribute('position',new THREE.Float32BufferAttribute(sv,3));
+const stars=new THREE.Points(starG,new THREE.PointsMaterial({color:0xffffff,size:2,sizeAttenuation:false,transparent:true,opacity:1,fog:false}));stars.geometry.setDrawRange(0,0);scene.add(stars);
+const pv=[];for(let i=0;i<180;i++)pv.push(rand(-60,60),rand(1,30),rand(-60,60));
+const polG=new THREE.BufferGeometry();polG.setAttribute('position',new THREE.Float32BufferAttribute(pv,3));
+const pollen=new THREE.Points(polG,new THREE.PointsMaterial({color:0xffffff,size:1.2,sizeAttenuation:false,transparent:true,opacity:.8}));scene.add(pollen);
+
+
+/* ---------- clouds: flat pixel clouds, shadow drawn as an ordered pattern, wind streaks around them ---------- */
+const BAYER=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5].map(v=>(v+.5)/16);
+function cloudTex(){const TW=160,TH=96,c=document.createElement('canvas');c.width=TW;c.height=TH;const x=c.getContext('2d');const img=x.createImageData(TW,TH),d=img.data;
+  const lvl=new Float32Array(TW*TH).fill(-1);
+  const puffs=[];const n=Math.floor(rand(7,11));for(let i=0;i<n;i++){const f=rnd();const h=Math.sin(f*Math.PI);puffs.push({x:22+f*116,y:64-h*rand(14,30)+rand(-4,8),r:rand(10,22)*(.7+h*.5)});}
+  for(let i=0;i<4;i++)puffs.push({x:rand(30,130),y:rand(62,70),r:rand(9,14)});
+  puffs.sort((p,q)=>p.y-q.y);
+  // each later (lower, nearer) puff covers what is behind it: solid on top, patterned towards its underside
+  for(const P of puffs)for(let y=Math.max(0,Math.floor(P.y-P.r));y<Math.min(TH,P.y+P.r);y++)for(let xx=Math.max(0,Math.floor(P.x-P.r*1.3));xx<Math.min(TW,P.x+P.r*1.3);xx++){
+    const dx=(xx-P.x)/1.3,dy=y-P.y;if(dx*dx+dy*dy>P.r*P.r||y>74)continue;lvl[y*TW+xx]=Math.min(.82,Math.max(0,(dy+P.r*.05)/(P.r*.95)));}
+  for(let y=0;y<TH;y++)for(let xx=0;xx<TW;xx++){const l=lvl[y*TW+xx];const k=(y*TW+xx)*4;
+    if(l>=0&&l<=BAYER[(y%4)*4+(xx%4)]){d[k]=d[k+1]=d[k+2]=255;d[k+3]=255;}}
+  // horizontal wind streaks: dashed lines on the sides and below
+  for(let r=0;r<16;r++){const y=Math.floor(rand(40,94));let xx=Math.floor(rand(0,40));const end=Math.floor(rand(100,160));
+    while(xx<end){const L=Math.floor(rand(2,14));for(let i=0;i<L&&xx+i<TW;i++){const k=(y*TW+xx+i)*4;if(lvl[y*TW+xx+i]<0){d[k]=d[k+1]=d[k+2]=255;d[k+3]=255;}}xx+=L+Math.floor(rand(2,8));}}
+  x.putImageData(img,0,0);const t=new THREE.CanvasTexture(c);t.magFilter=THREE.NearestFilter;t.minFilter=THREE.NearestFilter;t.generateMipmaps=false;return t;}
+const clouds=[];
+for(let i=0;i<9;i++){const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:cloudTex(),transparent:true,alphaTest:.02,fog:false,depthWrite:false}));
+  const a=i/9*Math.PI*2+rand(-.2,.2),r=rand(1300,1800),w=rand(650,1000);sp.scale.set(w,w*96/160,1);sp.position.set(Math.cos(a)*r,rand(140,320),Math.sin(a)*r);
+  sp.userData={a,r,v:rand(.004,.01),tone:i%2?10:11};sp.renderOrder=-1;scene.add(sp);clouds.push(sp);}
+
+/* ---------- the route: a slow loop over the island ---------- */
+const pts=[];for(let i=0;i<12;i++){const t=i/12*Math.PI*2;const r=R*.62*(1+.18*Math.sin(t*3+1));pts.push(new THREE.Vector3(Math.cos(t)*r*1.1,0,Math.sin(t)*r));}
+const route=new THREE.CatmullRomCurve3(pts,true,'catmullrom',.5);
+const START=.02,SPAN=.82;    // part of the loop the song covers
+const along=t=>START+SPAN*Math.min(1,Math.max(0,t/SONG));
+
+
+/* ---------- trees: three styles, each grown on a flat canvas and shown as a cut-out sprite ---------- */
+const STYLE=window.STYLE||'lowpoly';
+const BLOSSOM=['#f2b8c6','#c9dd9a','#f3d58c','#b9d7c9','#e9c2a6'];
+function genTree(){const T={segs:[],blobs:[],cells:[],tint:BLOSSOM[Math.floor(rnd()*BLOSSOM.length)]};
+  // fractal: recursive two-way split
+  (function br(x,y,a,l,w,d){const x2=x+Math.cos(a)*l,y2=y+Math.sin(a)*l;T.segs.push({x,y,x2,y2,w,d});if(d>=8)return;
+    br(x2,y2,a-rand(.3,.55),l*rand(.68,.8),w*.7,d+1);br(x2,y2,a+rand(.3,.55),l*rand(.68,.8),w*.7,d+1);})(128,250,-Math.PI/2+rand(-.08,.08),rand(52,66),rand(9,12),0);
+  // blob: a trunk and a few overlapping round crowns
+  const n=Math.floor(rand(4,8));for(let i=0;i<n;i++)T.blobs.push({x:128+rand(-40,40),y:rand(70,130),r:rand(28,52),o:i/n});
+  // pixel: cells grown from the root, upward with random side steps
+  const G=new Set();let tips=[[16,31]];G.add('16,31');T.cells.push([16,31,0]);let step=0;
+  while(tips.length&&T.cells.length<220&&step<400){step++;const nt=[];for(const [cx,cy] of tips){
+      const opts=[[0,-1],[0,-1],[0,-1],[-1,0],[1,0],[-1,-1],[1,-1]];const k=Math.floor(rnd()*opts.length);const nx=cx+opts[k][0],ny=cy+opts[k][1];
+      if(nx<1||nx>30||ny<2||G.has(nx+','+ny))continue;G.add(nx+','+ny);T.cells.push([nx,ny,step]);nt.push([nx,ny]);if(rnd()<(ny<22?.22:.06))nt.push([nx,ny]);}
+    tips=nt.slice(0,40);}
+  return T;}
+function paintTree(B,f,ink,night){const x=B.cv.getContext('2d');x.clearRect(0,0,256,256);const T=B.tree;
+  if(STYLE==='fractal'){x.strokeStyle=ink;x.lineCap='round';const maxD=f*9;
+    for(const s of T.segs){if(s.d>maxD)continue;const part=Math.min(1,maxD-s.d);x.lineWidth=s.w;x.beginPath();x.moveTo(s.x,s.y);x.lineTo(s.x+(s.x2-s.x)*part,s.y+(s.y2-s.y)*part);x.stroke();}}
+  else if(STYLE==='pixel'){const lim=Math.max(...T.cells.map(c=>c[2]))*f;for(const [cx,cy,st] of T.cells){if(st>lim)continue;x.fillStyle=(cx+cy)%3?ink:T.tint;x.fillRect(cx*8,cy*8,8,8);}}
+  else{x.fillStyle=ink;const th=Math.min(1,f*2.2);x.fillRect(124,250-150*th,8,150*th);
+    const g=Math.max(0,(f-.25)/.75);for(const b of T.blobs){const r=b.r*Math.min(1,Math.max(0,g*1.4-b.o*.4));if(r<=0)continue;x.fillStyle=night?ink:T.tint;x.beginPath();x.arc(b.x,b.y,r,0,6.28);x.fill();}}
+  B.tx.needsUpdate=true;}
+/* ---------- low-poly trees: a bent, faceted trunk with a few branches and cloud-like crowns ---------- */
+const BARK=new THREE.MeshLambertMaterial({color:0x7a4a35,flatShading:true});
+const CROWNS=[0xf0a3b4,0xf3b6c3,0xe98fa6,0xc9d79a,0xf2cf8c].map(c=>new THREE.MeshLambertMaterial({color:c,flatShading:true}));
+function seg(a,b,r1,r2,group){const d=new THREE.Vector3().subVectors(b,a);const L=d.length();const g=new THREE.CylinderGeometry(r2,r1,L,5,1);
+  const m=new THREE.Mesh(g,BARK);m.position.copy(a).addScaledVector(d,.5);m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),d.clone().normalize());group.add(m);}
+function crown(pos,r,mat,group){const g=new THREE.IcosahedronGeometry(r,1);const p=g.attributes.position;
+  for(let i=0;i<p.count;i++){const k=1+rand(-.22,.22);p.setXYZ(i,p.getX(i)*k*1.25,p.getY(i)*k*.62,p.getZ(i)*k);}g.computeVertexNormals();
+  const m=new THREE.Mesh(g,mat);m.position.copy(pos);m.rotation.y=rand(0,6.28);group.add(m);return m;}
+function makeTree(){const G=new THREE.Group(),wood=new THREE.Group(),leaves=new THREE.Group();G.add(wood,G.leaves=leaves);G.wood=wood;
+  const mat=CROWNS[rnd()<.7?Math.floor(rnd()*3):3+Math.floor(rnd()*2)];
+  // trunk: four bending segments
+  let p=new THREE.Vector3(0,0,0),dir=new THREE.Vector3(rand(-.25,.25),1,rand(-.25,.25)).normalize(),r=1.5;const H0=rand(10,14);
+  for(let i=0;i<4;i++){const q=p.clone().addScaledVector(dir,H0/4);seg(p,q,r,r*.82,wood);p=q;r*=.82;dir.add(new THREE.Vector3(rand(-.45,.45),0,rand(-.45,.45))).normalize();}
+  // branches: a small recursive split from the top, crowns at the tips
+  (function br(o,d,len,rr,depth){const n=depth===0?3:2;for(let k=0;k<n;k++){
+      const nd=d.clone().add(new THREE.Vector3(rand(-.9,.9),rand(.05,.45),rand(-.9,.9))).normalize();const e=o.clone().addScaledVector(nd,len);seg(o,e,rr,rr*.7,wood);
+      if(depth<1)br(e,nd,len*.72,rr*.7,depth+1);else crown(e.clone().add(new THREE.Vector3(0,1.2,0)),rand(3.2,4.8),mat,leaves);}})(p,dir,rand(5,7),r,0);
+  crown(p.clone().add(new THREE.Vector3(0,3,0)),rand(4.2,5.6),mat,leaves);
+  return G;}
+
+
+const trees3=[];
+const bushes=CUES.map((c,i)=>{const words=c[2].toUpperCase().replace(/[.,?!]/g,'').split(' ');
+  const u=along(c[0]+3)%1;const p=route.getPointAt(u),tan=route.getTangentAt(u);const side=i%2?1:-1;
+  const off=new THREE.Vector3(-tan.z,0,tan.x).multiplyScalar(side*rand(24,38));const q=p.clone().add(off).add(tan.clone().multiplyScalar(18));q.y=Math.max(1,H(q.x,q.z));
+  const cv=document.createElement('canvas');cv.width=cv.height=256;const tx=new THREE.CanvasTexture(cv);tx.magFilter=THREE.NearestFilter;tx.minFilter=THREE.NearestFilter;
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tx,transparent:true,alphaTest:.3}));sp.scale.set(30,30,1);sp.position.set(q.x,q.y-.5,q.z);sp.center.set(.5,.02);scene.add(sp);
+  let tree=null;if(STYLE==='lowpoly'){sp.visible=false;sp.material.visible=false;}
+  return {i,words,tree:genTree(),cv,tx,shown:-1,start:c[0],end:c[1],sp,q,side:off.clone().normalize(),tan:tan.clone()};});
+if(STYLE==='lowpoly'){for(const B of bushes){for(let k=0;k<3;k++){const T=makeTree();const o=k===0?new THREE.Vector3():B.side.clone().multiplyScalar(rand(6,30)).addScaledVector(B.tan,rand(-28,28));
+    const x=B.q.x+o.x,z=B.q.z+o.z;T.position.set(x,Math.max(1,H(x,z))-.4,z);const sc=k===0?1:rand(.55,.85);T.scale.setScalar(sc);scene.add(T);trees3.push({T,B});}}}
+
+/* ---------- the scenario: times in seconds ---------- */
+const TL={dive0:27.4,dive1:30.6,fish0:30,fish1:38,wind0:61,wind1:80,up0:100,look0:107.5,down0:112,land:119,path0:61,storm0:120,still:150,spins:6};
+const ss=v=>{v=Math.min(1,Math.max(0,v));return v*v*(3-2*v);};
+const sm=v=>{v=Math.min(1,Math.max(0,v));return v*v*v*(v*(v*6-15)+10);};
+const wrap=(v,L)=>((v%L)+L)%L;
+
+/* ---------- the path from 1:01 to the end of the island ---------- */
+const routeLen=route.getLength(),V0=routeLen*SPAN/SONG;
+const P0=route.getPointAt(along(TL.path0)%1),P0b=route.getPointAt((along(TL.path0)+.01)%1);
+const th0=Math.atan2(P0.z,P0.x/1.1),r0=Math.hypot(P0.x/1.1,P0.z);
+function pathPts(sweep){const out=[P0.clone(),P0b.clone()];const th1=Math.atan2(P0b.z,P0b.x/1.1);
+  const thE=th1+sweep;let rE=r0;while(H(Math.cos(thE)*rE*1.1,Math.sin(thE)*rE)>-1&&rE<900)rE+=4;rE+=30;
+  for(let k=1;k<=11;k++){const f=k/11,th=th1+sweep*f,r=r0+(rE-r0)*f*f*f+Math.sin(k*1.9)*16*(1-f);out.push(new THREE.Vector3(Math.cos(th)*r*1.1,0,Math.sin(th)*r));}
+  return new THREE.CatmullRomCurve3(out,false,'catmullrom',.5);}
+let path=pathPts(.5);{let best=1e9;for(let sw=.3;sw<4.6;sw+=.05){const c=pathPts(sw);const e=Math.abs(c.getLength()-V0*(TL.still-TL.path0));if(e<best){best=e;path=c;}}}
+const pathLen=path.getLength(),PEND=path.getPointAt(1),OUT=PEND.clone().sub(path.getPointAt(.97)).setY(0).normalize();
+// the path itself: a sandy ribbon laid on the ground, it appears in the first wind
+let pm,pathVerts=0;
+{const N=Math.ceil(pathLen/2),v=[],c=[];const S=new THREE.Color(0xeedfb8);
+  const at=k=>{const s=k/N,q=path.getPointAt(s),tg=path.getTangentAt(s);const n=new THREE.Vector3(-tg.z,0,tg.x);const w=2.6+Math.sin(k*.37)*.5;
+    const a=q.clone().addScaledVector(n,w),b=q.clone().addScaledVector(n,-w);a.y=H(a.x,a.z)+.7;b.y=H(b.x,b.z)+.7;return [a,b,H(q.x,q.z)];};
+  let prev=at(0);for(let k=1;k<=N;k++){const cur=at(k);if(prev[2]>.8&&cur[2]>.8){for(const P of [prev[0],prev[1],cur[0],prev[1],cur[1],cur[0]]){v.push(P.x,P.y,P.z);c.push(S.r,S.g,S.b);}}prev=cur;}
+  const pg=new THREE.BufferGeometry();pg.setAttribute('position',new THREE.Float32BufferAttribute(v,3));pg.setAttribute('color',new THREE.Float32BufferAttribute(c,3));pg.computeVertexNormals();
+  pathVerts=v.length/3;pm=new THREE.Mesh(pg,new THREE.MeshLambertMaterial({vertexColors:true,emissive:0x000000,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2}));scene.add(pm);}
+// keep the path clear, then line it with blossom trees
+const PS=[];for(let k=0;k<=200;k++)PS.push(path.getPointAt(k/200));
+const nearPath=(x,z)=>PS.reduce((m,q)=>Math.min(m,Math.hypot(q.x-x,q.z-z)),1e9);
+for(const o of trees3)if(nearPath(o.T.position.x,o.T.position.z)<30)scene.remove(o.T);
+for(let k=1;k<Math.floor(pathLen/34);k++){const s=k*34/pathLen,q=path.getPointAt(s),tg=path.getTangentAt(s);if(H(q.x,q.z)<3)continue;
+  for(const sd of [-1,1]){if(rnd()<.25)continue;const T=makeTree();const d=rand(30,40);const x=q.x-tg.z*sd*d,z=q.z+tg.x*sd*d;T.position.set(x,Math.max(1,H(x,z))-.4,z);T.scale.setScalar(rand(.7,1));scene.add(T);}}
+
+/* ---------- a school of fish swimming through the air ---------- */
+const FISH=[];{const cols=[[0x86b2c8,0xfbfaf4],[0xf3a9ba,0xfbfaf4],[0xf3d58c,0xf3a9ba],[0xfbfaf4,0x86b2c8]];
+  const sh=new THREE.Shape();sh.moveTo(2,0);sh.quadraticCurveTo(1.4,1.05,-.2,1);sh.quadraticCurveTo(-1.3,.8,-1.7,.15);sh.lineTo(-2.9,1.05);sh.lineTo(-2.55,0);sh.lineTo(-2.9,-1.05);sh.lineTo(-1.7,-.15);sh.quadraticCurveTo(-1.3,-.8,-.2,-.95);sh.quadraticCurveTo(1.4,-1,2,0);
+  const body=new THREE.ExtrudeGeometry(sh,{depth:.5,bevelEnabled:false});body.translate(0,0,-.25);body.rotateY(-Math.PI/2);
+  const fin=new THREE.Shape();fin.moveTo(.6,.9);fin.lineTo(-.9,1.7);fin.lineTo(-.6,.85);const finG=new THREE.ExtrudeGeometry(fin,{depth:.2,bevelEnabled:false});finG.translate(0,0,-.1);finG.rotateY(-Math.PI/2);
+  const eye=new THREE.BoxGeometry(.62,.32,.32);eye.translate(0,.22,1.35);const eyeM=new THREE.MeshBasicMaterial({color:0x3a2f33});
+  const shade=(geo,hex,j)=>{const g=geo.clone(),P=g.attributes.position,C=[],b=new THREE.Color(hex),back=b.clone().multiplyScalar(.82).lerp(new THREE.Color(0x6a7fa0),.12),belly=b.clone().lerp(new THREE.Color(0xffffff),.35);
+    for(let v=0;v<P.count;v++){const y=P.getY(v),z=P.getZ(v);const f=Math.min(1,Math.max(0,(y+.9)/1.9));const c=belly.clone().lerp(back,f);
+      const sp=Math.sin(z*5.3+j)*Math.sin(y*6.1+j*2);if(sp>.55)c.multiplyScalar(.9);c.offsetHSL(Math.sin(z*1.7+j)*.025,0,0);C.push(c.r,c.g,c.b);}
+    g.setAttribute('color',new THREE.Float32BufferAttribute(C,3));return g;};
+  for(let i=0;i<36;i++){const c=cols[i%9===0?3:i%3];const F=new THREE.Group();F.add(new THREE.Mesh(shade(body,c[0],i),new THREE.MeshBasicMaterial({vertexColors:true})),new THREE.Mesh(finG,new THREE.MeshBasicMaterial({color:c[1]})),new THREE.Mesh(eye,eyeM));
+    const sc=rand(1.05,1.5);F.userData={a:rand(0,6.28),r:rand(8,20),y:rand(-5,5),w:rand(.5,.7),ph:rand(0,6.28),sc,out:new THREE.Vector3(rand(-1,1),rand(-.3,.5),rand(-1,1)).normalize()};
+    F.visible=false;scene.add(F);FISH.push(F);}}
+function fishAt(F,t,C){const U=F.userData;const a=U.a+t*U.w;const sc=ss((t-TL.fish0+.6)/1.2);const sp=ss((t-33)/5);
+  const r=U.r*(1+sp*5);return new THREE.Vector3(C.x+Math.cos(a)*r+U.out.x*sp*40,C.y+U.y+Math.sin(t*1.3+U.ph)*1.2+U.out.y*sp*30,C.z+Math.sin(a)*r+U.out.z*sp*40);}
+
+/* ---------- wind strength over time, and how far the wind has carried things ---------- */
+const W1=t=>ss((t-TL.wind0)/1.5)*(1-ss((t-TL.wind1+2)/2));
+const W2=t=>t>=TL.still?0:ss((t-TL.storm0)/3)*(.2+.8*Math.pow(Math.max(0,(t-TL.storm0)/(TL.still-TL.storm0)),1.6));
+const DT=.05,PH1=[0],PH2=[0];for(let k=1;k*DT<SONG+2;k++){PH1.push(PH1[k-1]+W1(k*DT)*DT);PH2.push(PH2[k-1]+W2(k*DT)*DT);}
+const phase=(A,t)=>{const k=Math.min(A.length-1,Math.max(0,t/DT));const i=Math.floor(k);return A[i]+(A[Math.min(A.length-1,i+1)]-A[i])*(k-i);};
+const PH1E=phase(PH1,TL.wind1),PH2E=phase(PH2,TL.still);
+const FRZ=1.2;const ST=t=>{const s0=TL.still-FRZ;if(t<s0)return t;const x=Math.min(1,(t-s0)/(2*FRZ));return s0+2*FRZ*(x-x*x/2);};
+
+/* ---------- blossom petals for the first wind ---------- */
+const NP=520,petals=new THREE.InstancedMesh(new THREE.PlaneGeometry(.9,.55),new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),NP);
+const PD=[];for(let i=0;i<NP;i++){PD.push({x:rand(0,120),y:rand(-6,34),z:rand(0,120),v:rand(.8,1.4),s:rand(1,4),q:rand(0,6)});petals.setColorAt(i,new THREE.Color(i%4?0xf3a9ba:0xfbfaf4));}
+petals.count=0;petals.frustumCulled=false;scene.add(petals);
+const dummy=new THREE.Object3D();
+/* ---------- light specks for the second wind ---------- */
+const NS=700,sv2=new Float32Array(NS*3),SD=[];for(let i=0;i<NS;i++)SD.push({a:rand(0,6.28),r:Math.pow(rnd(),.7)*70+3,y:rand(-8,40),w:rand(.6,1.4),b:rand(0,6.28)});
+const specG=new THREE.BufferGeometry();specG.setAttribute('position',new THREE.BufferAttribute(sv2,3));
+const specks=new THREE.Points(specG,new THREE.PointsMaterial({color:0xfff2a0,size:2,sizeAttenuation:false,transparent:true,opacity:1,fog:false}));specks.frustumCulled=false;specks.visible=false;scene.add(specks);
+let anchor=null;const SPINF=TL.spins*2*Math.PI;
+
+/* ---------- time of day: four palettes across the song ---------- */
+const DAY=[ // song time, sky, fog, hemi sky, hemi ground, sun, sea, ink
+  [0,  0xf1d9cc,0xf1d9cc,0xfff1e6,0x8a7a6a,0xffe7cf,0x9ab7c3,'#3a2f33'],
+  [50, 0xcfe3ee,0xdfeaf0,0xffffff,0x8a8a70,0xffffff,0x88b4c6,'#24302a'],
+  [90,0xf3c9a3,0xf0cfb4,0xffe0c2,0x7a5a50,0xffc79a,0xa29db8,'#3a2a2a'],
+  [104,0x5a4778,0x6a5a86,0xc9a8d0,0x3a2a40,0xe0a0b8,0x6a6a96,'#e8e4d6'],
+  [116,0x2c3557,0x3a4466,0x7a86b8,0x1d2233,0x9aa6d8,0x2f3d5e,'#e8e4d6'],
+  [140,0x151a2e,0x1f2540,0x54608f,0x101421,0x7d88b8,0x1b2540,'#e8e4d6']];
+const cA=new THREE.Color(),cB=new THREE.Color();
+function mix(i,f,k){cA.setHex(DAY[i][k]);cB.setHex(DAY[i+1][k]);return cA.clone().lerp(cB,f);}
+function hexMix(h1,h2,f){const p=h=>[1,3,5].map(k=>parseInt(h.substr(k,2),16));const A=p(h1),B=p(h2);return 'rgb('+A.map((v,i)=>Math.round(v+(B[i]-v)*f)).join(',')+')';}
+
+
+/* ---------- dither pass: the scene is reduced to a handful of Proteus colours with an ordered dither ---------- */
+const rt=new THREE.WebGLRenderTarget(16,16,{minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter});
+function sizeRT(){const v=new THREE.Vector2();renderer.getSize(v);rt.setSize(v.x,v.y);ditherMat.uniforms.res.value.set(v.x,v.y);}
+const PALS=[ // dawn, day, dusk, night: sky, sea, sand, light grass, grass, dark green, blossom, bark
+  ['#f3dcd2','#9db8c6','#f2e2c2','#c9d99b','#93b779','#5c8462','#f0a3b4','#7a4a3c','#fdf1ea','#d8b6c0','#fde4dc','#eef0f6','#fff7e8'],
+  ['#bcd7ea','#86b2c8','#f3e8c8','#bfe08f','#86b86d','#4f7d5a','#f3a9ba','#7a4a35','#fbfaf4','#a9c0da','#fbfaf4','#fbfaf4','#ffffff'],
+  ['#f2c9a6','#a79cbc','#f0d2a8','#d6c98a','#a5a16a','#6a6c52','#ef9a9a','#6a3f35','#fbe3cc','#b8909e','#ffa98a','#f294bd','#fff2cc'],
+  ['#5a4778','#6a6a96','#a88f9c','#8a8f7a','#6a7a62','#3f4d4a','#d38fae','#4a3040','#c9b0d0','#6e5a8c','#f08a9a','#7a8fc0','#fff2cc'],
+  ['#1e2440','#2e3b5c','#5a5d76','#3f5a62','#2f4a4e','#1d2e33','#9a8fb8','#2a2433','#8e9cc4','#3d4874','#8e5aa6','#3f8797','#fff1b8']];
+const PAL_T=[0,45,90,104,122];
+const ditherMat=new THREE.ShaderMaterial({uniforms:{tDiffuse:{value:rt.texture},res:{value:new THREE.Vector2(1,1)},pal:{value:Array.from({length:13},()=>new THREE.Color())},spread:{value:.16}},
+  vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',
+  fragmentShader:`uniform sampler2D tDiffuse;uniform vec2 res;uniform vec3 pal[13];uniform float spread;varying vec2 vUv;
+  float b2(vec2 a){a=floor(a);return fract(dot(a,vec2(.5,a.y*.75)));}
+  float b4(vec2 a){return b2(.5*a)*.25+b2(a);}
+  void main(){vec3 c=texture2D(tDiffuse,vUv).rgb;float d=b4(gl_FragCoord.xy)-.5;c+=d*spread;
+    vec3 best=pal[0];float bd=1e9;for(int i=0;i<13;i++){vec3 e=c-pal[i];float dd=dot(e,e);if(dd<bd){bd=dd;best=pal[i];}}
+    gl_FragColor=vec4(best,1.);}`});
+const postScene=new THREE.Scene(),postCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),ditherMat));
+function setPalette(t){let i=0;while(i<PAL_T.length-2&&t>PAL_T[i+1])i++;const f=Math.min(1,Math.max(0,(t-PAL_T[i])/(PAL_T[i+1]-PAL_T[i])));
+  const A=new THREE.Color(),B=new THREE.Color();for(let k=0;k<13;k++){A.set(PALS[i][k]);B.set(PALS[i+1][k]);ditherMat.uniforms.pal.value[k].copy(A).lerp(B,f);}}
+sizeRT();addEventListener('resize',sizeRT);
+
+/* ---------- loop ---------- */
+document.getElementById('play').onclick=()=>{document.getElementById('start').hidden=true;a.currentTime=0;a.play().catch(()=>{});};
+document.getElementById('pause').onclick=e=>{if(a.paused){a.play().catch(()=>{});e.target.textContent='Pauze';}else{a.pause();e.target.textContent='Verder';}};
+a.addEventListener('ended',()=>{document.getElementById('start').hidden=false;});
+const info=document.getElementById('info');let wob=0,last=performance.now();
+/* ---------- look around a little: drag to turn your head, let go and it drifts back ---------- */
+let yaw=0,pitch=0,tYaw=0,tPitch=0,drag=null;
+stage.style.touchAction='none';
+stage.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,yaw:tYaw,pitch:tPitch};stage.setPointerCapture?.(e.pointerId);stage.style.cursor='grabbing';});
+stage.addEventListener('pointermove',e=>{if(!drag)return;tYaw=Math.max(-.7,Math.min(.7,drag.yaw-(e.clientX-drag.x)/innerWidth*1.6));tPitch=Math.max(-.4,Math.min(.35,drag.pitch-(e.clientY-drag.y)/innerHeight*1.2));});
+const endDrag=()=>{drag=null;stage.style.cursor='grab';};stage.addEventListener('pointerup',endDrag);stage.addEventListener('pointercancel',endDrag);stage.style.cursor='grab';
+const SKY=720;
+const UP=new THREE.Vector3(0,1,0);
+// the wind pushes the camera around; returns position offset, extra yaw and roll
+function gust(t){const N=(f,k)=>(n2(t*f+k*13.7,k*7.3)-.5)*2;
+  if(t<TL.storm0-1){const w=W1(t),k=.75,spin=2*Math.PI*phase(PH1,t)/PH1E;const s=w*k;
+    return {o:new THREE.Vector3(s*(9*Math.sin(.7*t)+5*Math.sin(1.9*t+1)),s*(5*Math.sin(.9*t)+3*Math.sin(2.3*t)),s*(9*Math.cos(.6*t+2)+5*Math.sin(1.4*t))),
+      yaw:spin+s*(.35*Math.sin(.8*t)+.15*Math.sin(2.1*t)),roll:s*(.22*Math.sin(.9*t)+.1*Math.sin(2.7*t)),pitch:s*.12*Math.sin(.75*t),w};}
+  t=Math.min(ST(t),TL.still-1e-3);const w=W2(t);
+  // like a plastic bag: sudden lifts and drops, swerves back and forth, tumbling
+  return {o:new THREE.Vector3(w*(16*N(.3,1)+6*N(1.1,2)),w*(12*N(.27,3)+5*N(1.3,4))+w*w*16,w*(16*N(.3,5)+6*N(1.05,6))),
+    yaw:2*Math.PI*phase(PH2,t)/PH2E+w*(2.2*N(.16,7)+.7*N(.6,8)),roll:w*(.5*N(.42,9)+.18*N(1.5,10)),pitch:w*(.32*N(.35,11)+.1*N(1.4,12)),w};}
+const FLOAT=25;
+function base(t){ // where we are on the island and what lies ahead
+  if(t<TL.path0){const u=along(t)%1;return [route.getPointAt(u),route.getPointAt((u+.012)%1)];}
+  const sp=Math.min(1,(ST(t)-TL.path0)/(TL.still-TL.path0));const s2=sp+29/pathLen;const d=95*sm(Math.max(0,t-TL.still)/FLOAT);
+  const q=path.getPointAt(sp).addScaledVector(OUT,d);const q2=(s2<=1?path.getPointAt(s2):PEND.clone().addScaledVector(OUT,(s2-1)*pathLen)).addScaledVector(OUT,d);return [q,q2];}
+const PATHVIEW=path.getPointAt(.8).setY(0);PATHVIEW.y=Math.max(H(PATHVIEW.x,PATHVIEW.z),0);
+let gS=null,lS=null,fS=null,qS=null,lastT=-9;const damp=(v,to,r,dt)=>v+(to-v)*(1-Math.exp(-dt*r));
+function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;wob+=dt;const t=a.currentTime||0;
+  const [p,ah]=base(t);const ground=Math.max(H(p.x,p.z),0);
+  const jump=Math.abs(t-lastT)>.6;lastT=t;
+  if(gS===null||jump)gS=ground;else gS=damp(gS,ground,2.2,dt);
+  let lowY=gS+lerp(14,10,ss((t-TL.path0)/6))+Math.sin(wob*.4)*1.2;
+  // 0:28 dive from high in the sky down onto the island
+  const dive=sm((t-TL.dive0)/(TL.dive1-TL.dive0));const hop=0;
+  // 1:44 look up at the stars and rise towards them, 1:50 sink back down onto the path
+  const lookUp=1.1*sm((t-TL.up0)/4)-2.0*sm((t-TL.look0)/3.5)+.9*sm((t-TL.down0-1)/(TL.land-TL.down0));
+  const climb=170*sm((t-TL.up0)/8)*(1-sm((t-TL.down0)/(TL.land-TL.down0)));
+  // 2:30 everything stops: we float up and away from the island
+  const tau=Math.max(0,t-TL.still);const away=85*sm(tau/FLOAT);
+  // 1:01 a cheerful summer wind lifts us high up, 1:20 we sink back and land on the path at 1:27
+  const lift=80*sm((t-TL.wind0-1)/7)*(1-sm((t-80)/7));
+  let camY=lowY+hop+climb+away+lift;
+  camY=camY*Math.pow(SKY/Math.max(4,camY),1-dive);
+  const G=gust(t);let off=G.o,roll=G.roll,gyaw=G.yaw;
+  let gp=G.pitch-.38*lift/80;if(t>=TL.still){const e=1-sm(tau/10);roll*=e;gp*=e;}
+  cam.position.set(p.x+off.x,camY+off.y,p.z+off.z);
+  const fl=Math.max(H(cam.position.x,cam.position.z),0)+6;if(fS===null||jump)fS=fl;else fS=damp(fS,fl,fl>fS?6:1.5,dt);
+  {const d=(cam.position.y-fS)/4;cam.position.y=fS+(d>20?d:Math.log1p(Math.exp(d)))*4;} // soft floor: never under the hills, no hard kink
+  const fwd=new THREE.Vector3(ah.x-p.x,0,ah.z-p.z).normalize();
+  const near=new THREE.Vector3(ah.x+off.x,(lS=(lS===null||jump)?Math.max(H(ah.x,ah.z),0):damp(lS,Math.max(H(ah.x,ah.z),0),1.6,dt))+10+hop+climb+away+lift+off.y,ah.z+off.z);
+  const far=new THREE.Vector3(p.x*.15+fwd.x*120,40,p.z*.15+fwd.z*120);
+  const look=far.clone().lerp(near,dive);look.y-=Math.sin(dive*Math.PI)*320;
+  // head turn on top of the route direction
+  if(!drag){tYaw*=Math.pow(.25,dt);tPitch*=Math.pow(.25,dt);}yaw+=(tYaw-yaw)*Math.min(1,dt*6);pitch+=(tPitch-pitch)*Math.min(1,dt*6);
+  const dir=look.clone().sub(cam.position);const L=Math.max(20,dir.length());dir.normalize();dir.applyAxisAngle(UP,gyaw);
+  let side=new THREE.Vector3().crossVectors(dir,UP).normalize();dir.applyAxisAngle(side,lookUp+gp);
+  if(tau>0){const k=sm(tau/18);const B=PATHVIEW.clone().sub(cam.position).normalize();
+    const yA=Math.atan2(dir.x,dir.z),yB=Math.atan2(B.x,B.z);let dy=yB-yA;dy=Math.atan2(Math.sin(dy),Math.cos(dy));const yy=yA+dy*k;
+    const pA=Math.asin(Math.max(-1,Math.min(1,dir.y))),pB=Math.asin(Math.max(-1,Math.min(1,B.y))),pp=pA+(pB-pA)*k;dir.set(Math.sin(yy)*Math.cos(pp),Math.sin(pp),Math.cos(yy)*Math.cos(pp));}
+  dir.applyAxisAngle(UP,yaw);side=new THREE.Vector3().crossVectors(dir,UP).normalize();dir.applyAxisAngle(side,pitch);
+  cam.up.set(0,1,0);cam.lookAt(cam.position.clone().addScaledVector(dir,L));if(roll)cam.rotateZ(roll);
+  if(qS===null||jump)qS=cam.quaternion.clone();else qS.slerp(cam.quaternion,1-Math.exp(-dt*7));cam.quaternion.copy(qS);
+  const hi=Math.max(0,cam.position.y-lowY);{const nr=Math.min(40,Math.max(.5,(cam.position.y-Math.max(H(cam.position.x,cam.position.z),0))*.05));if(Math.abs(nr-cam.near)>.05){cam.near=nr;cam.updateProjectionMatrix();}}scene.fog.near=80+hi*1.5;scene.fog.far=900+hi*3;
+  if(window.SHOT){const S=window.SHOT;cam.position.set(S.p[0],S.p[1],S.p[2]);cam.lookAt(S.l[0],S.l[1],S.l[2]);}
+  // light
+  let i=0;while(i<DAY.length-2&&t>DAY[i+1][0])i++;const f=Math.min(1,Math.max(0,(t-DAY[i][0])/(DAY[i+1][0]-DAY[i][0])));
+  const sky=mix(i,f,1);renderer.setClearColor(sky);scene.fog.color.copy(mix(i,f,2));hemi.color.copy(mix(i,f,3));hemi.groundColor.copy(mix(i,f,4));sun.color.copy(mix(i,f,5));sea.material.color.copy(mix(i,f,6));
+  const night=Math.min(1,Math.max(0,(t-100)/18));
+  stars.geometry.setDrawRange(0,Math.floor(1100*ss((t-TL.up0+.5)/6)));stars.material.size=2+(tau>0?ss(tau/20)*.6:0);
+  const sunA=Math.PI*(.15+.8*Math.min(1,t/118));const sd=new THREE.Vector3(Math.cos(sunA)*.9,Math.sin(sunA)*.6+.1,-.4).normalize();
+  sun.position.copy(sd);disc.position.copy(cam.position).add(sd.clone().multiplyScalar(1500));disc.lookAt(cam.position);
+  disc.material.color.set(night>.5?0xe8ecff:0xfff1d6);if(night>.5){disc.position.copy(cam.position).add(new THREE.Vector3(-.5,.45,.7).normalize().multiplyScalar(1500));disc.lookAt(cam.position);}
+  const still=t>=TL.still?0:1;
+  for(const C of clouds){C.userData.a+=C.userData.v*dt*.1*(1+(G.w*8))*still;C.position.x=Math.cos(C.userData.a)*C.userData.r;C.position.z=Math.sin(C.userData.a)*C.userData.r;
+    C.material.color.copy(ditherMat.uniforms.pal.value[C.userData.tone]);C.material.opacity=1-ss((cam.position.y-260)/160);C.visible=C.material.opacity>.02;}
+  // 0:30 a school of fish, swimming apart and gone by 0:38
+  const fishOn=t>TL.fish0-1&&t<TL.fish1+.5;const FC=new THREE.Vector3(p.x+fwd.x*24,lowY+2,p.z+fwd.z*24);
+  for(const F of FISH){F.visible=fishOn;if(!fishOn)continue;const q=fishAt(F,t,FC),q2=fishAt(F,t+.05,FC);F.position.copy(q);F.lookAt(q2);F.rotateY(Math.sin(t*7+F.userData.ph)*.18);
+    const fade=ss((t-TL.fish0+.6)/1.2)*(1-ss((t-35.5)/(TL.fish1-35.5)));F.scale.setScalar(F.userData.sc*fade*ss((q.distanceTo(cam.position)-5)/9)+.001);}
+  // 1:01 the path appears ahead of us while the petals blow round
+  if(pm)pm.material.emissive.setRGB(.2*night,.17*night,.26*night);
+  if(pm)pm.geometry.setDrawRange(0,Math.floor(pathVerts*sm((t-TL.path0+1)/16)/3)*3);
+  const w1=W1(t);petals.count=Math.floor(NP*Math.min(1,w1*1.4));
+  if(petals.count){const ph=phase(PH1,t);for(let k=0;k<petals.count;k++){const D=PD[k];
+      const x=wrap(D.x+ph*22*D.v+Math.sin(ph*1.3+D.q)*6,120)-60,z=wrap(D.z+ph*9*D.v+Math.cos(ph*1.1+D.q)*6,120)-60,y=D.y+Math.sin(ph*2+D.q)*4;
+      dummy.position.set(cam.position.x+x,Math.max(Math.max(H(cam.position.x+x,cam.position.z+z),0)+2,cam.position.y-22+wrap(y+ph*3,46)),cam.position.z+z);dummy.rotation.set(ph*D.s+D.q,ph*D.s*.7,D.q);dummy.updateMatrix();petals.setMatrixAt(k,dummy.matrix);}
+    petals.instanceMatrix.needsUpdate=true;}
+  // 2:00 light specks, ever wilder; 2:30 they freeze and hang among the stars
+  specks.visible=t>TL.storm0-1;
+  if(specks.visible){if(t<TL.still+FRZ||!anchor)anchor=cam.position.clone();const ph=phase(PH2,Math.min(ST(t),TL.still));const n=Math.floor(NS*ss((t-TL.storm0+1)/5)*(1-.8*sm(tau/9)));specG.setDrawRange(0,n);
+    for(let k=0;k<NS;k++){const D=SD[k];const ang=D.a+ph*D.w*(.5+14/D.r);const r=D.r*(1+.15*Math.sin(ph*1.7+D.b));
+      sv2[k*3]=anchor.x+Math.cos(ang)*r;sv2[k*3+1]=anchor.y-6+wrap(D.y+ph*6*D.w+Math.sin(ph*3+D.b)*3,48);sv2[k*3+2]=anchor.z+Math.sin(ang)*r;}
+    specG.attributes.position.needsUpdate=true;specks.material.opacity=1;}
+  // pollen drifts around the camera
+  const pp=polG.attributes.position;for(let k=0;k<pp.count;k++){let px=pp.getX(k)+Math.sin(wob*.3+k)*.02,py=pp.getY(k)+.01,pz=pp.getZ(k);if(py>32)py=1;pp.setXYZ(k,px,py,pz);}pp.needsUpdate=true;
+  pollen.position.set(cam.position.x,ground,cam.position.z);pollen.visible=cam.position.y-ground<70;pollen.material.color.set(night>.5?0xfff2a0:0xffffff);
+  // bushes grow while their line is sung, and a little after
+  const ink=hexMix(DAY[i][7],DAY[i+1][7],Math.round(f*10)/10);
+  if(STYLE!=='lowpoly')for(const B of bushes){const g2=Math.min(1,Math.max(0,(t-B.start+.5)/((B.end-B.start)+8)));const n=Math.round(g2*60);
+    if(n!==B.shown||B.ink!==ink){B.shown=n;B.ink=ink;if(t>B.start-1)paintTree(B,n/60,ink,night>.5);}B.sp.visible=t>B.start-1;}
+  setPalette(t);renderer.setRenderTarget(rt);renderer.render(scene,cam);renderer.setRenderTarget(null);renderer.render(postScene,postCam);
+  info.textContent=Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');
+  requestAnimationFrame(frame);}
+window.__isl={bushes,H,route,along,path,V0,pathLen};
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
