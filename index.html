@@ -5,10 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Het eiland</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Special+Elite&display=swap">
 <style>
 /* Layout: one full-window low-resolution 3D view, a start card in the middle, a thin bar at the bottom. Single look by choice: the island sets the colours. */
-:root{--ink:#151515;--paper:#f6f4ef;--mute:#5e5b55;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;--type:"Special Elite","Courier New",monospace;color-scheme:light}
+:root{--ink:#151515;--paper:#f6f4ef;--mute:#5e5b55;--mono:Arial,"Helvetica Neue",Helvetica,sans-serif;--type:Arial,"Helvetica Neue",Helvetica,sans-serif;color-scheme:light}
 html,body{height:100%}
 [hidden]{display:none!important}
 body{margin:0;background:#e9d9cf;color:var(--ink);font-family:var(--mono);font-size:12px;overflow:hidden}
@@ -22,7 +21,10 @@ button{font:500 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;co
 button:focus-visible{outline:2px solid #2639b8;outline-offset:2px}
 .start{position:fixed;inset:0;display:grid;place-items:center;padding:24px max(16px,env(safe-area-inset-left,0px))}
 .card{display:grid;gap:14px;justify-items:center;text-align:center;background:rgba(246,244,239,.88);padding:28px 36px;border:1px solid var(--ink)}
-.card h1{font-family:var(--type);font-weight:400;font-size:clamp(26px,5vw,40px);margin:0;line-height:1.1}
+.card h1{font-family:var(--type);font-weight:400;font-size:clamp(22px,4.4vw,34px);margin:0;line-height:1.2}
+.card .row{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+.card a.btn{font:500 12px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink);background:rgba(246,244,239,.85);border:1px solid var(--ink);padding:12px 22px;text-decoration:none}
+.card a.btn:focus-visible{outline:2px solid #2639b8;outline-offset:2px}
 .card p{margin:0;color:var(--mute);max-width:44ch}
 .card button{padding:12px 30px;font-size:12px;background:var(--ink);color:var(--paper)}
 #err{position:fixed;inset:0;display:grid;place-items:center;text-align:center;padding:24px}
@@ -34,9 +36,8 @@ button:focus-visible{outline:2px solid #2639b8;outline-offset:2px}
 <div id="err" hidden>De 3D-weergave kon niet starten in deze browser.</div>
 <div class="start" id="start">
   <div class="card">
-    <h1>It will never go away</h1>
-    <p>Val uit de lucht op het eiland en drijf mee, van ochtend tot sterrennacht. Sleep om rond te kijken.</p>
-    <button id="play">Play</button>
+    <h1>It will never go away - Das Island</h1>
+    <div class="row"><button id="play">Play</button><a class="btn" href="https://open.spotify.com/artist/7JeKwuQGd9iIn49Vj6ZWvs" target="_blank" rel="noopener">Listen on Spotify</a></div>
   </div>
 </div>
 <div class="bar"><span class="t">Das Island · 07 · sleep om rond te kijken</span><span id="info">0:00</span><button id="pause">Pauze</button></div>
