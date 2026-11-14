@@ -337,7 +337,7 @@ function onTilt(e){if(e.beta==null||e.gamma==null)return;
   if(ang===90){x=e.beta;y=-e.gamma;}else if(ang===-90||ang===270){x=-e.beta;y=e.gamma;}
   if(tilt.b0===null){tilt.g0=x;tilt.b0=y;}
   tilt.g0+=(x-tilt.g0)*.004;tilt.b0+=(y-tilt.b0)*.004;
-  const R=Math.PI/180;tilt.yaw=Math.max(-.7,Math.min(.7,-(x-tilt.g0)*R*1.1));tilt.pitch=Math.max(-.4,Math.min(.35,(y-tilt.b0)*R*1.1));
+  const R=Math.PI/180;tilt.yaw=Math.max(-.7,Math.min(.7,(x-tilt.g0)*R*1.1));tilt.pitch=Math.max(-.4,Math.min(.35,(y-tilt.b0)*R*1.1));
   if(!tilt.on){tilt.on=true;const lab=document.querySelector('.bar .t');if(lab)lab.textContent='Das Island · 07 · kantel om rond te kijken';}}
 function startTilt(){if(!('DeviceOrientationEvent' in window)||!matchMedia('(pointer:coarse)').matches)return;tilt.b0=null;
   addEventListener('deviceorientation',onTilt); // events only arrive once the browser allows them
