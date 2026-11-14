@@ -320,7 +320,7 @@ function drawIntro(t){const W=Math.ceil(innerWidth/DOWN),Hh=Math.ceil(innerHeigh
     oc.fillStyle='#3a2f33';for(const [x0,y0,x,y] of px)if(on(x,y))oc.fillRect(x0+x*kk,y0+y*kk,kk,kk);}}
 
 /* ---------- loop ---------- */
-document.getElementById('play').onclick=()=>{document.getElementById('start').hidden=true;a.currentTime=0;a.play().catch(()=>{});};
+document.getElementById('play').onclick=()=>{startTilt();document.getElementById('start').hidden=true;a.currentTime=0;a.play().catch(()=>{});};
 document.getElementById('pause').onclick=e=>{if(a.paused){a.play().catch(()=>{});e.target.textContent='Pauze';}else{a.pause();e.target.textContent='Verder';}};
 a.addEventListener('ended',()=>{document.getElementById('start').hidden=false;});
 const info=document.getElementById('info');let wob=0,last=performance.now();
@@ -330,6 +330,18 @@ stage.style.touchAction='none';
 stage.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,yaw:tYaw,pitch:tPitch};stage.setPointerCapture?.(e.pointerId);stage.style.cursor='grabbing';});
 stage.addEventListener('pointermove',e=>{if(!drag)return;tYaw=Math.max(-.7,Math.min(.7,drag.yaw-(e.clientX-drag.x)/innerWidth*1.6));tPitch=Math.max(-.4,Math.min(.35,drag.pitch-(e.clientY-drag.y)/innerHeight*1.2));});
 const endDrag=()=>{drag=null;stage.style.cursor='grab';};stage.addEventListener('pointerup',endDrag);stage.addEventListener('pointercancel',endDrag);stage.style.cursor='grab';
+/* ---------- on a phone: tilt it a little to look around; the rest position slowly re-centres ---------- */
+const tilt={on:false,yaw:0,pitch:0,b0:null,g0:null};
+function onTilt(e){if(e.beta==null||e.gamma==null)return;
+  const ang=(screen.orientation&&screen.orientation.angle)||window.orientation||0;let x=e.gamma,y=e.beta;
+  if(ang===90){x=e.beta;y=-e.gamma;}else if(ang===-90||ang===270){x=-e.beta;y=e.gamma;}
+  if(tilt.b0===null){tilt.g0=x;tilt.b0=y;}
+  tilt.g0+=(x-tilt.g0)*.004;tilt.b0+=(y-tilt.b0)*.004;
+  const R=Math.PI/180;tilt.yaw=Math.max(-.7,Math.min(.7,-(x-tilt.g0)*R*1.1));tilt.pitch=Math.max(-.4,Math.min(.35,(y-tilt.b0)*R*1.1));
+  if(!tilt.on){tilt.on=true;const lab=document.querySelector('.bar .t');if(lab)lab.textContent='Das Island · 07 · kantel om rond te kijken';}}
+function startTilt(){if(!('DeviceOrientationEvent' in window)||!matchMedia('(pointer:coarse)').matches)return;tilt.b0=null;
+  addEventListener('deviceorientation',onTilt); // events only arrive once the browser allows them
+  if(typeof DeviceOrientationEvent.requestPermission==='function')DeviceOrientationEvent.requestPermission().catch(()=>{});}
 const SKY=720;
 const UP=new THREE.Vector3(0,1,0);
 // the wind pushes the camera around; returns position offset, extra yaw and roll
@@ -374,7 +386,7 @@ function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;wob+=dt;cons
   const far=new THREE.Vector3(p.x*.15+fwd.x*120,40,p.z*.15+fwd.z*120);
   const look=far.clone().lerp(near,dive);look.y-=Math.sin(dive*Math.PI)*320;
   // head turn on top of the route direction
-  if(!drag){tYaw*=Math.pow(.25,dt);tPitch*=Math.pow(.25,dt);}yaw+=(tYaw-yaw)*Math.min(1,dt*6);pitch+=(tPitch-pitch)*Math.min(1,dt*6);
+  if(!drag){if(tilt.on){tYaw=tilt.yaw;tPitch=tilt.pitch;}else{tYaw*=Math.pow(.25,dt);tPitch*=Math.pow(.25,dt);}}yaw+=(tYaw-yaw)*Math.min(1,dt*6);pitch+=(tPitch-pitch)*Math.min(1,dt*6);
   const dir=look.clone().sub(cam.position);const L=Math.max(20,dir.length());dir.normalize();dir.applyAxisAngle(UP,gyaw);
   let side=new THREE.Vector3().crossVectors(dir,UP).normalize();dir.applyAxisAngle(side,lookUp+gp);
   if(tau>0){const k=sm(tau/18);const B=PATHVIEW.clone().sub(cam.position).normalize();
