@@ -320,6 +320,11 @@ function drawIntro(t){const W=Math.ceil(innerWidth/DOWN),Hh=Math.ceil(innerHeigh
     oc.fillStyle='#3a2f33';for(const [x0,y0,x,y] of px)if(on(x,y))oc.fillRect(x0+x*kk,y0+y*kk,kk,kk);}}
 
 /* ---------- loop ---------- */
+/* keep the screen awake while the song plays */
+let wake=null;const keepAwake=()=>{if(!('wakeLock' in navigator)||a.paused||wake)return;navigator.wakeLock.request('screen').then(w=>{wake=w;w.addEventListener('release',()=>{wake=null;});}).catch(()=>{});};
+const letSleep=()=>{if(wake){wake.release().catch(()=>{});wake=null;}};
+a.addEventListener('play',keepAwake);a.addEventListener('pause',letSleep);a.addEventListener('ended',letSleep);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')keepAwake();});
 document.getElementById('play').onclick=()=>{startTilt();document.getElementById('start').hidden=true;a.currentTime=0;a.play().catch(()=>{});};
 document.getElementById('pause').onclick=e=>{if(a.paused){a.play().catch(()=>{});e.target.textContent='Pauze';}else{a.pause();e.target.textContent='Verder';}};
 a.addEventListener('ended',()=>{document.getElementById('start').hidden=false;});
